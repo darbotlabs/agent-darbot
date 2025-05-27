@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "name": "cypherdyne-workspace",
+  "description": "Root workspace configuration - redirects to UI-Tars/Desktop",
+  "scripts": {
+    "postinstall": "cd UI-Tars/Desktop && pnpm install",
+    "start": "cd UI-Tars/Desktop && pnpm run dev:ui-tars"
+  }
+}

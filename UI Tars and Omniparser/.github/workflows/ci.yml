@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node-version: [20.x]
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'pnpm'
+    
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v3
+      with:
+        version: latest
+        run_install: false
+    
+    - name: Install dependencies
+      run: pnpm install
+    
+    - name: Bootstrap workspace
+      run: pnpm run bootstrap
+    
+    - name: Lint
+      run: pnpm run lint
+    
+    - name: Test
+      run: pnpm run test
+    
+    - name: Validate presets
+      run: pnpm run validate-presets
+    
+    # Windows-specific steps for PowerShell script testing
+    - name: Test PowerShell script
+      if: matrix.os == 'windows-latest'
+      shell: pwsh
+      run: |
+        # Test if the script detects when run outside UI-Tars\Desktop
+        cd ..
+        $ErrorActionPreference = "Continue"
+        $output = & .\UI-Tars\Desktop\setup_ui_tars.ps1 2>&1
+        if ($output -match "Please run this script from UI-Tars\\Desktop") {
+          Write-Host "PowerShell script correctly detected wrong directory"
+          exit 0
+        } else {
+          Write-Host "PowerShell script failed to detect wrong directory"
+          exit 1
+        }

@@ -1,0 +1,51 @@
+INFO: Could not find files for the given pattern(s).
+C:\Users\darbot\AppData\Local\Programs\Python\Python313\Lib\site-packages\paddle\utils\cpp_extension\extension_utils.py:711: UserWarning: No ccache found. Please be aware that recompiling all source files may be required. You can download and install ccache from: https://github.com/ccache/ccache/blob/master/doc/INSTALL.md
+  warnings.warn(warning_message)
+[2025-05-25 11:20:51,092] [ WARNING] easyocr.py:80 - Neither CUDA nor MPS are available - defaulting to CPU. Note: This module is much faster with a GPU.
+Florence2LanguageForConditionalGeneration has generative capabilities, as `prepare_inputs_for_generation` is explicitly defined. However, it doesn't directly inherit from `GenerationMixin`. From \U0001f449v4.50\U0001f448 onwards, `PreTrainedModel` will NOT inherit from `GenerationMixin`, and this model will lose the ability to call `generate` and other related functions.
+  - If you're using `trust_remote_code=True`, you can get rid of this warning by loading the model with an auto class. See https://huggingface.co/docs/transformers/en/model_doc/auto#auto-classes
+  - If you are the owner of the model architecture code, please modify your model class such that it inherits from `GenerationMixin` (after `PreTrainedModel`, otherwise you'll get an exception).
+  - If you are not the owner of the model architecture class, please contact the model code owner to update it.
+Traceback (most recent call last):
+  File "G:\Github\new\agent-darbot\UI Tars and Omniparser\gradio_demo.py", line 16, in <module>
+    caption_model_processor = get_caption_model_processor(model_name="florence2", model_name_or_path="weights/icon_caption_florence")
+  File "G:\Github\new\agent-darbot\UI Tars and Omniparser\util\utils.py", line 65, in get_caption_model_processor
+    model = AutoModelForCausalLM.from_pretrained(model_name_or_path, torch_dtype=torch.float32, trust_remote_code=True)
+  File "C:\Users\darbot\AppData\Local\Programs\Python\Python313\Lib\site-packages\transformers\models\auto\auto_factory.py", line 564, in from_pretrained
+    return model_class.from_pretrained(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        pretrained_model_name_or_path, *model_args, config=config, **hub_kwargs, **kwargs
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\darbot\AppData\Local\Programs\Python\Python313\Lib\site-packages\transformers\modeling_utils.py", line 309, in _wrapper
+    return func(*args, **kwargs)
+  File "C:\Users\darbot\AppData\Local\Programs\Python\Python313\Lib\site-packages\transformers\modeling_utils.py", line 4573, in from_pretrained
+    ) = cls._load_pretrained_model(
+        ~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        model,
+        ^^^^^^
+    ...<13 lines>...
+        weights_only=weights_only,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\darbot\AppData\Local\Programs\Python\Python313\Lib\site-packages\transformers\modeling_utils.py", line 4883, in _load_pretrained_model
+    model._initialize_missing_keys(checkpoint_keys, ignore_mismatched_sizes, is_quantized)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\darbot\AppData\Local\Programs\Python\Python313\Lib\site-packages\transformers\modeling_utils.py", line 5476, in _initialize_missing_keys
+    self.initialize_weights()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\darbot\AppData\Local\Programs\Python\Python313\Lib\site-packages\torch\utils\_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+  File "C:\Users\darbot\AppData\Local\Programs\Python\Python313\Lib\site-packages\transformers\modeling_utils.py", line 2555, in initialize_weights
+    self.smart_apply(self._initialize_weights)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\darbot\AppData\Local\Programs\Python\Python313\Lib\site-packages\transformers\modeling_utils.py", line 2546, in smart_apply
+    module.smart_apply(module._initialize_weights)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\darbot\AppData\Local\Programs\Python\Python313\Lib\site-packages\torch\nn\modules\module.py", line 1940, in __getattr__
+    raise AttributeError(
+        f"'{type(self).__name__}' object has no attribute '{name}'"
+    )
+AttributeError: 'DaViT' object has no attribute '_initialize_weights'
