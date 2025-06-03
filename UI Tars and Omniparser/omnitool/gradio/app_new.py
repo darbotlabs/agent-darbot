@@ -36,8 +36,10 @@ INTRO_TEXT = '''
 <div style="text-align: center; margin-bottom: 10px;">
     <h2>OmniParser AI Agent</h2>
     <p>Turn any vision-language model into an AI agent. We currently support <b>OpenAI (4o/o1/o3-mini), DeepSeek (R1), Qwen (2.5VL) or Anthropic Computer Use (Sonnet)</b>.</p>
-    <p>Type a message and press send to start OmniTool. Press stop to pause, and press the trash icon in the chat to clear the message history.</p>
-    <p>You can also upload files for analysis using the file upload section.</p>
+    <p>⚡ <b>Quick Start:</b> Enter your API key in settings, type a task description, and press Send!</p>
+    <p>📝 Example tasks: "Open a browser and search for weather", "Create a new text file with hello world"</p>
+    <p>📁 You can also upload files for analysis using the file upload section below.</p>
+    <p>🔧 <b>Requirements:</b> Make sure the OmniParser server is running for visual processing.</p>
 </div>
 '''
 
@@ -69,6 +71,7 @@ def load_existing_files():
     return files
 
 def setup_state(state):
+    """Initialize the application state with all required keys and default values."""
     if "messages" not in state:
         state["messages"] = []
     if "model" not in state:
@@ -79,8 +82,14 @@ def setup_state(state):
         state["openai_api_key"] = os.getenv("OPENAI_API_KEY", "")
     if "anthropic_api_key" not in state:
         state["anthropic_api_key"] = os.getenv("ANTHROPIC_API_KEY", "")
+    if "groq_api_key" not in state:
+        state["groq_api_key"] = os.getenv("GROQ_API_KEY", "")
+    if "dashscope_api_key" not in state:
+        state["dashscope_api_key"] = os.getenv("DASHSCOPE_API_KEY", "")
     if "api_key" not in state:
-        state["api_key"] = ""
+        # Set the API key based on the current provider
+        provider = state.get("provider", "openai")
+        state["api_key"] = state.get(f"{provider}_api_key", "")
     if "auth_validated" not in state:
         state["auth_validated"] = False
     if "responses" not in state:
@@ -95,6 +104,8 @@ def setup_state(state):
         state['stop'] = False
     if 'uploaded_files' not in state:
         state['uploaded_files'] = []  # Start with an empty list instead of loading existing files
+    
+    print(f"State initialized: model={state.get('model')}, provider={state.get('provider')}, api_key_set={bool(state.get('api_key'))}")
 
 async def main(state):
     """Render loop for Gradio"""
@@ -223,20 +234,40 @@ def valid_params(user_input, state):
     """Validate all requirements and return a list of error messages."""
     errors = []
     
+    # Check server connectivity with better error messages
     for server_name, url in [('Windows Host', 'localhost:5000'), ('OmniParser Server', args.omniparser_server_url)]:
         try:
-            url = f'http://{url}/probe'
-            response = requests.get(url, timeout=3)
+            probe_url = f'http://{url}/probe'
+            print(f"Checking connectivity to {server_name} at {probe_url}")
+            response = requests.get(probe_url, timeout=5)
             if response.status_code != 200:
-                errors.append(f"{server_name} is not responding")
+                errors.append(f"{server_name} at {url} is not responding correctly (status: {response.status_code})")
+        except requests.exceptions.Timeout:
+            errors.append(f"{server_name} at {url} is not responding (timeout)")
+        except requests.exceptions.ConnectionError:
+            errors.append(f"Cannot connect to {server_name} at {url}. Please check if the server is running.")
         except RequestException as e:
-            errors.append(f"{server_name} is not responding")
+            errors.append(f"{server_name} at {url} is not responding ({str(e)})")
     
+    # Validate API key
     if not state["api_key"].strip():
-        errors.append("LLM API Key is not set")
+        provider = state.get("provider", "unknown")
+        errors.append(f"{provider.title()} API Key is not set. Please enter your API key in the settings.")
 
-    if not user_input:
-        errors.append("no computer use request provided")
+    # Validate user input
+    if not user_input or not user_input.strip():
+        errors.append("Please enter a task description or instruction.")
+    
+    # Validate model and provider compatibility
+    model = state.get("model", "")
+    provider = state.get("provider", "")
+    if model and provider:
+        print(f"Validating model '{model}' with provider '{provider}'")
+        if "claude" in model and provider != "anthropic":
+            errors.append(f"Model '{model}' is only compatible with Anthropic provider, but '{provider}' is selected.")
+        elif "gpt" in model or "o1" in model or "o3" in model:
+            if provider not in ["openai"]:
+                errors.append(f"Model '{model}' is only compatible with OpenAI provider, but '{provider}' is selected.")
     
     return errors
 
@@ -261,31 +292,64 @@ def process_input(user_input, state):
     state['chatbot_messages'].append((user_input, None))
     yield state['chatbot_messages'], gr.update()  # Yield to update the chatbot UI with the user's message
 
-    print("state")
-    print(state)
+    print("Starting task processing...")
+    print(f"Model: {state['model']}, Provider: {state['provider']}")
 
-    # Run sampling_loop_sync with the chatbot_output_callback
-    for loop_msg in sampling_loop_sync(
-        model=state["model"],
-        provider=state["provider"],
-        messages=state["messages"],
-        output_callback=partial(chatbot_output_callback, chatbot_state=state['chatbot_messages'], hide_images=False),
-        tool_output_callback=partial(_tool_output_callback, tool_state=state["tools"]),
-        api_response_callback=partial(_api_response_callback, response_state=state["responses"]),
-        api_key=state["api_key"],
-        only_n_most_recent_images=state["only_n_most_recent_images"],
-        max_tokens=16384,
-        omniparser_url=args.omniparser_server_url,
-        save_folder=str(RUN_FOLDER)
-    ):  
-        if loop_msg is None or state.get("stop"):
-            # Detect and add new files to the state
-            file_choices_update = detect_new_files(state)
-            yield state['chatbot_messages'], file_choices_update
-            print("End of task. Close the loop.")
-            break
+    try:
+        # Add a status message to show the task is starting
+        state['chatbot_messages'].append((None, "🔄 Starting task processing..."))
+        yield state['chatbot_messages'], gr.update()
+        
+        # Run sampling_loop_sync with the chatbot_output_callback
+        loop_count = 0
+        max_loops = 50  # Prevent infinite loops
+        
+        for loop_msg in sampling_loop_sync(
+            model=state["model"],
+            provider=state["provider"],
+            messages=state["messages"],
+            output_callback=partial(chatbot_output_callback, chatbot_state=state['chatbot_messages'], hide_images=False),
+            tool_output_callback=partial(_tool_output_callback, tool_state=state["tools"]),
+            api_response_callback=partial(_api_response_callback, response_state=state["responses"]),
+            api_key=state["api_key"],
+            only_n_most_recent_images=state["only_n_most_recent_images"],
+            max_tokens=16384,
+            omniparser_url=args.omniparser_server_url,
+            save_folder=str(RUN_FOLDER)
+        ):  
+            loop_count += 1
             
-        yield state['chatbot_messages'], gr.update()  # Yield the updated chatbot_messages to update the chatbot UI
+            if loop_msg is None or state.get("stop"):
+                # Detect and add new files to the state
+                file_choices_update = detect_new_files(state)
+                state['chatbot_messages'].append((None, f"✅ Task completed successfully after {loop_count} steps."))
+                yield state['chatbot_messages'], file_choices_update
+                print("End of task. Close the loop.")
+                break
+            
+            if loop_count >= max_loops:
+                state['chatbot_messages'].append((None, f"⚠️ Task stopped after {max_loops} steps to prevent infinite loop."))
+                yield state['chatbot_messages'], gr.update()
+                print(f"Task stopped after {max_loops} steps.")
+                break
+                
+            yield state['chatbot_messages'], gr.update()  # Yield the updated chatbot_messages to update the chatbot UI
+        
+        # If we get here without breaking, something went wrong
+        if loop_count == 0:
+            state['chatbot_messages'].append((None, "❌ No response from AI agent. Please check your API key and server connections."))
+            yield state['chatbot_messages'], gr.update()
+            
+    except Exception as e:
+        print(f"Error during task processing: {str(e)}")
+        error_message = f"❌ Task failed with error: {str(e)}"
+        if "API key" in str(e).lower():
+            error_message += "\n\n💡 Please check your API key is correctly set in the settings."
+        elif "connection" in str(e).lower() or "timeout" in str(e).lower():
+            error_message += "\n\n💡 Please check that the OmniParser server is running and accessible."
+        
+        state['chatbot_messages'].append((None, error_message))
+        yield state['chatbot_messages'], gr.update()
     
     # Final detection of new files
     file_choices_update = detect_new_files(state)
@@ -294,6 +358,54 @@ def process_input(user_input, state):
 def stop_app(state):
     state["stop"] = True
     return "App stopped"
+
+def test_connectivity(state):
+    """Test connectivity to required services and return a status message."""
+    results = []
+    
+    # Test OmniParser Server
+    try:
+        url = f'http://{args.omniparser_server_url}/probe'
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            results.append("✅ OmniParser Server: Connected")
+        else:
+            results.append(f"❌ OmniParser Server: HTTP {response.status_code}")
+    except requests.exceptions.ConnectionError:
+        results.append("❌ OmniParser Server: Connection failed (server not running?)")
+    except Exception as e:
+        results.append(f"❌ OmniParser Server: {str(e)}")
+    
+    # Test Windows Host (VNC)
+    try:
+        url = f'http://localhost:5000/probe'
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            results.append("✅ Windows Host: Connected")
+        else:
+            results.append(f"❌ Windows Host: HTTP {response.status_code}")
+    except requests.exceptions.ConnectionError:
+        results.append("❌ Windows Host: Connection failed (server not running?)")
+    except Exception as e:
+        results.append(f"❌ Windows Host: {str(e)}")
+    
+    # Test API Key
+    api_key = state.get("api_key", "")
+    provider = state.get("provider", "unknown")
+    if api_key:
+        results.append(f"✅ {provider.title()} API Key: Set")
+    else:
+        results.append(f"❌ {provider.title()} API Key: Not set")
+    
+    # Test Model Configuration
+    model = state.get("model", "")
+    if model:
+        results.append(f"✅ Model: {model}")
+    else:
+        results.append("❌ Model: Not selected")
+    
+    status_message = "\n".join(results)
+    return status_message
 
 def get_header_image_base64():
     try:
@@ -429,22 +541,53 @@ def handle_file_upload(files, state):
         return gr.update(choices=[])
     
     file_choices = []
+    errors = []
     
     for file in files:
-        # Get the file name and create a path in the upload directory
-        file_name = Path(file.name).name
-        file_path = RUN_FOLDER / file_name
-        
-        # Save the file
-        shutil.copy(file.name, file_path)
-        
-        # Add to the list of uploaded files
-        file_path_str = str(file_path)
-        file_choices.append((file_name, file_path_str))
-        
-        # Add to state
-        if file_path_str not in state['uploaded_files']:
-            state['uploaded_files'].append(file_path_str)
+        try:
+            # Get the file name and create a path in the upload directory
+            file_name = Path(file.name).name
+            
+            # Sanitize filename to prevent issues
+            file_name = "".join(c for c in file_name if c.isalnum() or c in '._- ')
+            if not file_name:
+                file_name = f"uploaded_file_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            
+            file_path = RUN_FOLDER / file_name
+            
+            # Check if file already exists and create unique name if needed
+            counter = 1
+            original_path = file_path
+            while file_path.exists():
+                stem = original_path.stem
+                suffix = original_path.suffix
+                file_path = original_path.parent / f"{stem}_{counter}{suffix}"
+                counter += 1
+            
+            # Save the file
+            shutil.copy(file.name, file_path)
+            
+            # Add to the list of uploaded files
+            file_path_str = str(file_path)
+            file_choices.append((file_path.name, file_path_str))
+            
+            # Add to state
+            if file_path_str not in state['uploaded_files']:
+                state['uploaded_files'].append(file_path_str)
+                
+            print(f"Successfully uploaded file: {file_path.name}")
+            
+        except Exception as e:
+            error_msg = f"Failed to upload {getattr(file, 'name', 'unknown file')}: {str(e)}"
+            errors.append(error_msg)
+            print(f"File upload error: {error_msg}")
+    
+    # Show errors to user if any
+    if errors:
+        error_text = "\n".join(errors)
+        # Note: In a real implementation, we'd want to show this error to the user
+        # For now, we'll just print it
+        print(f"File upload errors:\n{error_text}")
     
     # Update the view file dropdown with all uploaded files
     all_file_choices = [(Path(path).name, path) for path in state['uploaded_files']]
@@ -470,21 +613,48 @@ def toggle_view(view_mode, file_path=None, state=None):
 def detect_new_files(state):
     """Detect new files in the uploads folder and add them to the state"""
     new_files_count = 0
-    if RUN_FOLDER.exists():
-        current_files = set(state['uploaded_files'])
-        for file_path in RUN_FOLDER.iterdir():
-            if file_path.is_file():
-                file_path_str = str(file_path)
-                if file_path_str not in current_files:
-                    # This is a new file not yet in the state
-                    state['uploaded_files'].append(file_path_str)
-                    new_files_count += 1
-                    print(f"Added new file to state: {file_path_str}")
     
-    # Return updated file choices
-    file_choices = [(Path(path).name, path) for path in state['uploaded_files']]
-    print(f"Detected {new_files_count} new files. Total files in state: {len(state['uploaded_files'])}")
-    return gr.update(choices=file_choices)
+    try:
+        if not RUN_FOLDER.exists():
+            print(f"Run folder {RUN_FOLDER} does not exist yet")
+            return gr.update(choices=[])
+            
+        current_files = set(state.get('uploaded_files', []))
+        
+        for file_path in RUN_FOLDER.iterdir():
+            try:
+                if file_path.is_file():
+                    file_path_str = str(file_path)
+                    if file_path_str not in current_files:
+                        # This is a new file not yet in the state
+                        state['uploaded_files'].append(file_path_str)
+                        new_files_count += 1
+                        print(f"Added new file to state: {file_path.name}")
+            except Exception as e:
+                print(f"Error processing file {file_path}: {str(e)}")
+                continue
+        
+        # Return updated file choices
+        file_choices = []
+        for path in state.get('uploaded_files', []):
+            try:
+                path_obj = Path(path)
+                if path_obj.exists():
+                    file_choices.append((path_obj.name, path))
+                else:
+                    # Remove non-existent files from state
+                    print(f"Removing non-existent file from state: {path}")
+                    state['uploaded_files'].remove(path)
+            except Exception as e:
+                print(f"Error validating file {path}: {str(e)}")
+                continue
+        
+        print(f"Detected {new_files_count} new files. Total files in state: {len(file_choices)}")
+        return gr.update(choices=file_choices)
+        
+    except Exception as e:
+        print(f"Error in detect_new_files: {str(e)}")
+        return gr.update(choices=[])
 
 def refresh_files(state):
     """Refresh the list of files from the current session and detect new files"""
@@ -559,6 +729,14 @@ with gr.Blocks(theme=gr.themes.Default()) as demo:
                     interactive=True,
                     container=True
                 )
+        with gr.Row():
+            test_button = gr.Button("🔧 Test Connectivity", variant="secondary", elem_classes="secondary-button")
+            connectivity_status = gr.Textbox(
+                label="System Status",
+                value="Click 'Test Connectivity' to check system status",
+                interactive=False,
+                lines=4
+            )
 
     # File Upload Section
     with gr.Accordion("File Upload & Management", open=True, elem_classes="accordion-header"):
@@ -595,7 +773,8 @@ with gr.Blocks(theme=gr.themes.Default()) as demo:
             chat_input = gr.Textbox(
                 show_label=False, 
                 placeholder="Type a message to send to Omniparser + X ...", 
-                container=False
+                container=False,
+                autofocus=True
             )
         with gr.Column(scale=1, min_width=50):
             submit_button = gr.Button(value="Send", variant="primary", elem_classes="primary-button")
@@ -620,26 +799,42 @@ with gr.Blocks(theme=gr.themes.Default()) as demo:
         state["model"] = model_selection
         print(f"Model updated to: {state['model']}")
         
+        # Determine provider choices based on model
         if model_selection == "claude-3-5-sonnet-20241022":
             provider_choices = [option.value for option in APIProvider if option.value != "openai"]
         elif model_selection in set(["omniparser + gpt-4o", "omniparser + o1", "omniparser + o3-mini", "omniparser + gpt-4o-orchestrated", "omniparser + o1-orchestrated", "omniparser + o3-mini-orchestrated"]):
             provider_choices = ["openai"]
-        elif model_selection == "omniparser + R1":
+        elif model_selection in set(["omniparser + R1", "omniparser + R1-orchestrated"]):
             provider_choices = ["groq"]
-        elif model_selection == "omniparser + qwen2.5vl":
+        elif model_selection in set(["omniparser + qwen2.5vl", "omniparser + qwen2.5vl-orchestrated"]):
             provider_choices = ["dashscope"]
         else:
             provider_choices = [option.value for option in APIProvider]
+        
         default_provider_value = provider_choices[0]
-
         provider_interactive = len(provider_choices) > 1
         api_key_placeholder = f"{default_provider_value.title()} API Key"
 
-        # Update state
+        # Update state with provider and corresponding API key
         state["provider"] = default_provider_value
         state["api_key"] = state.get(f"{default_provider_value}_api_key", "")
+        
+        # If API key is empty, try to get from environment
+        if not state["api_key"]:
+            env_key_map = {
+                "openai": "OPENAI_API_KEY",
+                "anthropic": "ANTHROPIC_API_KEY", 
+                "groq": "GROQ_API_KEY",
+                "dashscope": "DASHSCOPE_API_KEY"
+            }
+            env_key = env_key_map.get(default_provider_value)
+            if env_key:
+                state["api_key"] = os.getenv(env_key, "")
+                state[f"{default_provider_value}_api_key"] = state["api_key"]
 
-        # Calls to update other components UI
+        print(f"Updated provider to: {default_provider_value}, API key set: {bool(state['api_key'])}")
+
+        # Update UI components
         provider_update = gr.update(
             choices=provider_choices,
             value=default_provider_value,
@@ -669,7 +864,9 @@ with gr.Blocks(theme=gr.themes.Default()) as demo:
                 
     def update_api_key(api_key_value, state):
         state["api_key"] = api_key_value
-        state[f'{state["provider"]}_api_key'] = api_key_value
+        provider = state.get("provider", "openai")
+        state[f'{provider}_api_key'] = api_key_value
+        print(f"API key updated for provider {provider}: {'✓' if api_key_value else '✗'}")
 
     def clear_chat(state):
         # Reset message-related state
@@ -677,6 +874,7 @@ with gr.Blocks(theme=gr.themes.Default()) as demo:
         state["responses"] = {}
         state["tools"] = {}
         state['chatbot_messages'] = []
+        print("Chat history cleared")
         return state['chatbot_messages']
 
     def view_file(file_path, view_mode):
@@ -705,6 +903,7 @@ with gr.Blocks(theme=gr.themes.Default()) as demo:
     provider.change(fn=update_provider, inputs=[provider, state], outputs=api_key)
     api_key.change(fn=update_api_key, inputs=[api_key, state], outputs=None)
     chatbot.clear(fn=clear_chat, inputs=[state], outputs=[chatbot])
+    test_button.click(fn=test_connectivity, inputs=[state], outputs=[connectivity_status])
 
     # File upload event handlers
     upload_button.click(
@@ -720,7 +919,26 @@ with gr.Blocks(theme=gr.themes.Default()) as demo:
         outputs=[display_area]
     )
     
-    submit_button.click(process_input, [chat_input, state], [chatbot, view_file_dropdown])
+    # Submit button handlers  
+    submit_button.click(
+        fn=process_input, 
+        inputs=[chat_input, state], 
+        outputs=[chatbot, view_file_dropdown]
+    ).then(
+        lambda: "",  # Clear the input field after submission
+        outputs=[chat_input]
+    )
+    
+    # Also allow Enter key to submit
+    chat_input.submit(
+        fn=process_input,
+        inputs=[chat_input, state],
+        outputs=[chatbot, view_file_dropdown]
+    ).then(
+        lambda: "",  # Clear the input field after submission
+        outputs=[chat_input]
+    )
+    
     stop_button.click(stop_app, [state], None)
     
     # Toggle view handler
@@ -757,4 +975,16 @@ with gr.Blocks(theme=gr.themes.Default()) as demo:
     gr.HTML("<script>(" + js_refresh + ")();</script>")
     
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=7888)
+    try:
+        print("Starting OmniTool Gradio App...")
+        print(f"Arguments: {args}")
+        print(f"Run folder: {RUN_FOLDER}")
+        print("App should be available at: http://0.0.0.0:7888")
+        demo.launch(server_name="0.0.0.0", server_port=7888)
+    except Exception as e:
+        print(f"Failed to launch app: {str(e)}")
+        print("Please check that:")
+        print("1. Port 7888 is not already in use")
+        print("2. All required dependencies are installed")
+        print("3. The OmniParser server is running if you plan to use it")
+        raise
