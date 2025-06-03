@@ -541,22 +541,53 @@ def handle_file_upload(files, state):
         return gr.update(choices=[])
     
     file_choices = []
+    errors = []
     
     for file in files:
-        # Get the file name and create a path in the upload directory
-        file_name = Path(file.name).name
-        file_path = RUN_FOLDER / file_name
-        
-        # Save the file
-        shutil.copy(file.name, file_path)
-        
-        # Add to the list of uploaded files
-        file_path_str = str(file_path)
-        file_choices.append((file_name, file_path_str))
-        
-        # Add to state
-        if file_path_str not in state['uploaded_files']:
-            state['uploaded_files'].append(file_path_str)
+        try:
+            # Get the file name and create a path in the upload directory
+            file_name = Path(file.name).name
+            
+            # Sanitize filename to prevent issues
+            file_name = "".join(c for c in file_name if c.isalnum() or c in '._- ')
+            if not file_name:
+                file_name = f"uploaded_file_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            
+            file_path = RUN_FOLDER / file_name
+            
+            # Check if file already exists and create unique name if needed
+            counter = 1
+            original_path = file_path
+            while file_path.exists():
+                stem = original_path.stem
+                suffix = original_path.suffix
+                file_path = original_path.parent / f"{stem}_{counter}{suffix}"
+                counter += 1
+            
+            # Save the file
+            shutil.copy(file.name, file_path)
+            
+            # Add to the list of uploaded files
+            file_path_str = str(file_path)
+            file_choices.append((file_path.name, file_path_str))
+            
+            # Add to state
+            if file_path_str not in state['uploaded_files']:
+                state['uploaded_files'].append(file_path_str)
+                
+            print(f"Successfully uploaded file: {file_path.name}")
+            
+        except Exception as e:
+            error_msg = f"Failed to upload {getattr(file, 'name', 'unknown file')}: {str(e)}"
+            errors.append(error_msg)
+            print(f"File upload error: {error_msg}")
+    
+    # Show errors to user if any
+    if errors:
+        error_text = "\n".join(errors)
+        # Note: In a real implementation, we'd want to show this error to the user
+        # For now, we'll just print it
+        print(f"File upload errors:\n{error_text}")
     
     # Update the view file dropdown with all uploaded files
     all_file_choices = [(Path(path).name, path) for path in state['uploaded_files']]
@@ -582,21 +613,48 @@ def toggle_view(view_mode, file_path=None, state=None):
 def detect_new_files(state):
     """Detect new files in the uploads folder and add them to the state"""
     new_files_count = 0
-    if RUN_FOLDER.exists():
-        current_files = set(state['uploaded_files'])
-        for file_path in RUN_FOLDER.iterdir():
-            if file_path.is_file():
-                file_path_str = str(file_path)
-                if file_path_str not in current_files:
-                    # This is a new file not yet in the state
-                    state['uploaded_files'].append(file_path_str)
-                    new_files_count += 1
-                    print(f"Added new file to state: {file_path_str}")
     
-    # Return updated file choices
-    file_choices = [(Path(path).name, path) for path in state['uploaded_files']]
-    print(f"Detected {new_files_count} new files. Total files in state: {len(state['uploaded_files'])}")
-    return gr.update(choices=file_choices)
+    try:
+        if not RUN_FOLDER.exists():
+            print(f"Run folder {RUN_FOLDER} does not exist yet")
+            return gr.update(choices=[])
+            
+        current_files = set(state.get('uploaded_files', []))
+        
+        for file_path in RUN_FOLDER.iterdir():
+            try:
+                if file_path.is_file():
+                    file_path_str = str(file_path)
+                    if file_path_str not in current_files:
+                        # This is a new file not yet in the state
+                        state['uploaded_files'].append(file_path_str)
+                        new_files_count += 1
+                        print(f"Added new file to state: {file_path.name}")
+            except Exception as e:
+                print(f"Error processing file {file_path}: {str(e)}")
+                continue
+        
+        # Return updated file choices
+        file_choices = []
+        for path in state.get('uploaded_files', []):
+            try:
+                path_obj = Path(path)
+                if path_obj.exists():
+                    file_choices.append((path_obj.name, path))
+                else:
+                    # Remove non-existent files from state
+                    print(f"Removing non-existent file from state: {path}")
+                    state['uploaded_files'].remove(path)
+            except Exception as e:
+                print(f"Error validating file {path}: {str(e)}")
+                continue
+        
+        print(f"Detected {new_files_count} new files. Total files in state: {len(file_choices)}")
+        return gr.update(choices=file_choices)
+        
+    except Exception as e:
+        print(f"Error in detect_new_files: {str(e)}")
+        return gr.update(choices=[])
 
 def refresh_files(state):
     """Refresh the list of files from the current session and detect new files"""
@@ -715,7 +773,8 @@ with gr.Blocks(theme=gr.themes.Default()) as demo:
             chat_input = gr.Textbox(
                 show_label=False, 
                 placeholder="Type a message to send to Omniparser + X ...", 
-                container=False
+                container=False,
+                autofocus=True
             )
         with gr.Column(scale=1, min_width=50):
             submit_button = gr.Button(value="Send", variant="primary", elem_classes="primary-button")
@@ -860,7 +919,26 @@ with gr.Blocks(theme=gr.themes.Default()) as demo:
         outputs=[display_area]
     )
     
-    submit_button.click(process_input, [chat_input, state], [chatbot, view_file_dropdown])
+    # Submit button handlers  
+    submit_button.click(
+        fn=process_input, 
+        inputs=[chat_input, state], 
+        outputs=[chatbot, view_file_dropdown]
+    ).then(
+        lambda: "",  # Clear the input field after submission
+        outputs=[chat_input]
+    )
+    
+    # Also allow Enter key to submit
+    chat_input.submit(
+        fn=process_input,
+        inputs=[chat_input, state],
+        outputs=[chatbot, view_file_dropdown]
+    ).then(
+        lambda: "",  # Clear the input field after submission
+        outputs=[chat_input]
+    )
+    
     stop_button.click(stop_app, [state], None)
     
     # Toggle view handler
@@ -897,4 +975,16 @@ with gr.Blocks(theme=gr.themes.Default()) as demo:
     gr.HTML("<script>(" + js_refresh + ")();</script>")
     
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=7888)
+    try:
+        print("Starting OmniTool Gradio App...")
+        print(f"Arguments: {args}")
+        print(f"Run folder: {RUN_FOLDER}")
+        print("App should be available at: http://0.0.0.0:7888")
+        demo.launch(server_name="0.0.0.0", server_port=7888)
+    except Exception as e:
+        print(f"Failed to launch app: {str(e)}")
+        print("Please check that:")
+        print("1. Port 7888 is not already in use")
+        print("2. All required dependencies are installed")
+        print("3. The OmniParser server is running if you plan to use it")
+        raise
