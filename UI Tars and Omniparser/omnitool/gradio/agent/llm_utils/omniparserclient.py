@@ -12,25 +12,48 @@ class OmniParserClient:
         self.url = url
 
     def __call__(self,):
-        screenshot, screenshot_path = get_screenshot()
-        screenshot_path = str(screenshot_path)
-        image_base64 = encode_image(screenshot_path)
-        response = requests.post(self.url, json={"base64_image": image_base64})
-        response_json = response.json()
-        print('omniparser latency:', response_json['latency'])
+        try:
+            screenshot, screenshot_path = get_screenshot()
+            screenshot_path = str(screenshot_path)
+            image_base64 = encode_image(screenshot_path)
+            
+            print(f"Sending request to OmniParser at {self.url}")
+            response = requests.post(self.url, json={"base64_image": image_base64}, timeout=30)
+            
+            if response.status_code != 200:
+                raise Exception(f"OmniParser server returned status {response.status_code}: {response.text}")
+            
+            response_json = response.json()
+            
+            if 'error' in response_json:
+                raise Exception(f"OmniParser error: {response_json['error']}")
+            
+            print('omniparser latency:', response_json.get('latency', 'unknown'))
 
-        som_image_data = base64.b64decode(response_json['som_image_base64'])
-        screenshot_path_uuid = Path(screenshot_path).stem.replace("screenshot_", "")
-        som_screenshot_path = f"{OUTPUT_DIR}/screenshot_som_{screenshot_path_uuid}.png"
-        with open(som_screenshot_path, "wb") as f:
-            f.write(som_image_data)
-        
-        response_json['width'] = screenshot.size[0]
-        response_json['height'] = screenshot.size[1]
-        response_json['original_screenshot_base64'] = image_base64
-        response_json['screenshot_uuid'] = screenshot_path_uuid
-        response_json = self.reformat_messages(response_json)
-        return response_json
+            # Create output directory if it doesn't exist
+            Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
+            
+            som_image_data = base64.b64decode(response_json['som_image_base64'])
+            screenshot_path_uuid = Path(screenshot_path).stem.replace("screenshot_", "")
+            som_screenshot_path = f"{OUTPUT_DIR}/screenshot_som_{screenshot_path_uuid}.png"
+            with open(som_screenshot_path, "wb") as f:
+                f.write(som_image_data)
+            
+            response_json['width'] = screenshot.size[0]
+            response_json['height'] = screenshot.size[1]
+            response_json['original_screenshot_base64'] = image_base64
+            response_json['screenshot_uuid'] = screenshot_path_uuid
+            response_json = self.reformat_messages(response_json)
+            return response_json
+            
+        except requests.exceptions.Timeout:
+            raise Exception("OmniParser server request timed out. Please check if the server is running and responsive.")
+        except requests.exceptions.ConnectionError:
+            raise Exception(f"Cannot connect to OmniParser server at {self.url}. Please check if the server is running.")
+        except requests.exceptions.RequestException as e:
+            raise Exception(f"Error communicating with OmniParser server: {str(e)}")
+        except Exception as e:
+            raise Exception(f"Error in OmniParser processing: {str(e)}")
     
     def reformat_messages(self, response_json: dict):
         screen_info = ""
