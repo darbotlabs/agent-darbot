@@ -43,10 +43,7 @@
   },
   "dependencies": {
     "@tavily/core": "0.3.1",
-    "@computer-use/node-mac-permissions": "2.2.2",
-    "@agent-infra/mcp-server-commands": "workspace:*",
-    "@agent-infra/mcp-server-filesystem": "workspace:*",
-    "@agent-infra/mcp-server-browser": "workspace:*"
+    "@computer-use/node-mac-permissions": "2.2.2"
   },
   "devDependencies": {
     "jsonrepair": "3.12.0",
@@ -59,10 +56,10 @@
     "openai": "^4.86.2",
     "dotenv": "16.4.7",
     "@agent-infra/mcp-shared": "workspace:*",
-    "@agent-infra/shared": "workspace:*",
-    "@agent-infra/logger": "workspace:*",
-    "@agent-infra/mcp-client": "workspace:*",
-    "@agent-infra/search": "workspace:*",
+    "@agent-infra/shared": "^1.0.0",
+    "@agent-infra/logger": "^1.0.0",
+    "@agent-infra/mcp-client": "^1.0.0",
+    "@agent-infra/search": "^1.0.0",
     "ws": "8.18.1",
     "utf-8-validate": "6.0.5",
     "bufferutil": "4.0.9",
@@ -70,8 +67,8 @@
     "@anthropic-ai/sdk": "0.39.0",
     "@google/generative-ai": "0.24.0",
     "@mistralai/mistralai": "1.5.1",
-    "@ui-tars/electron-ipc": "workspace:*",
-    "@common/electron-build": "workspace:*",
+    "@ui-tars/electron-ipc": "^1.0.0",
+    "@common/electron-build": "^1.0.0",
     "@electron-forge/cli": "^7.7.0",
     "@electron-forge/maker-deb": "^7.7.0",
     "@electron-forge/maker-dmg": "^7.7.0",
