@@ -9,7 +9,7 @@ import os
 import io
 import shutil
 import mimetypes
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 from functools import partial
 from pathlib import Path
@@ -28,9 +28,65 @@ from tools import ToolResult
 import requests
 from requests.exceptions import RequestException
 import base64
+import re
+import tempfile
+import time
+import logging
+
+# Configure logging for production monitoring
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('omnitool.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 CONFIG_DIR = Path("~/.anthropic").expanduser()
 API_KEY_FILE = CONFIG_DIR / "api_key"
+
+# Rate limiting for production stability
+RATE_LIMIT_WINDOW = timedelta(minutes=1)  # 1 minute window
+MAX_REQUESTS_PER_WINDOW = 10  # Max 10 requests per minute per user
+request_timestamps = {}
+
+def is_rate_limited(user_id="default"):
+    """Simple rate limiting to prevent abuse."""
+    now = datetime.now()
+    if user_id not in request_timestamps:
+        request_timestamps[user_id] = []
+    
+    # Remove old timestamps outside the window
+    request_timestamps[user_id] = [
+        ts for ts in request_timestamps[user_id] 
+        if now - ts <= RATE_LIMIT_WINDOW
+    ]
+    
+    # Check if we're over the limit
+    if len(request_timestamps[user_id]) >= MAX_REQUESTS_PER_WINDOW:
+        return True
+    
+    # Add current timestamp
+    request_timestamps[user_id].append(now)
+    return False
+
+def sanitize_input(text):
+    """Sanitize user input for security."""
+    if not text or not isinstance(text, str):
+        return ""
+    
+    # Remove potentially dangerous characters and limit length
+    text = text.strip()
+    text = re.sub(r'[<>\"\'&]', '', text)  # Remove HTML/JS injection chars
+    
+    # Limit input length
+    MAX_INPUT_LENGTH = 2000
+    if len(text) > MAX_INPUT_LENGTH:
+        text = text[:MAX_INPUT_LENGTH] + "... [truncated]"
+    
+    return text
 
 INTRO_TEXT = '''
 <div style="text-align: center; margin-bottom: 10px;">
@@ -145,15 +201,25 @@ def load_from_storage(filename: str) -> str | None:
     return None
 
 def save_to_storage(filename: str, data: str) -> None:
-    """Save data to a file in the storage directory."""
+    """Save data to a file in the storage directory with secure permissions."""
     try:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         file_path = CONFIG_DIR / filename
-        file_path.write_text(data)
-        # Ensure only user can read/write the file
-        file_path.chmod(0o600)
+        
+        # Write to temporary file first, then move to final location (atomic operation)
+        import tempfile
+        temp_path = file_path.with_suffix('.tmp')
+        temp_path.write_text(data)
+        temp_path.chmod(0o600)  # Secure permissions before moving
+        temp_path.replace(file_path)  # Atomic move
+        
+        print(f"Debug: Securely saved {filename}")
     except Exception as e:
         print(f"Debug: Error saving {filename}: {e}")
+        # Clean up temp file if it exists
+        temp_path = CONFIG_DIR / f"{filename}.tmp"
+        if temp_path.exists():
+            temp_path.unlink()
 
 def _api_response_callback(response: APIResponse[BetaMessage], response_state: dict):
     response_id = datetime.now().isoformat()
@@ -272,9 +338,25 @@ def valid_params(user_input, state):
     return errors
 
 def process_input(user_input, state):
+    """Process user input with security and rate limiting."""
+    # Rate limiting check
+    if is_rate_limited():
+        error_msg = "⚠️ Rate limit exceeded. Please wait before submitting another request."
+        state['chatbot_messages'].append((user_input, error_msg))
+        yield state['chatbot_messages'], gr.update()
+        return
+
     # Reset the stop flag
     if state["stop"]:
         state["stop"] = False
+
+    # Sanitize user input
+    user_input = sanitize_input(user_input)
+    if not user_input:
+        error_msg = "❌ Invalid or empty input. Please enter a valid task description."
+        state['chatbot_messages'].append((None, error_msg))
+        yield state['chatbot_messages'], gr.update()
+        return
 
     errors = valid_params(user_input, state)
     if errors:
@@ -975,16 +1057,64 @@ with gr.Blocks(theme=gr.themes.Default()) as demo:
     gr.HTML("<script>(" + js_refresh + ")();</script>")
     
 if __name__ == "__main__":
+    import socket
+    import time
+    
+    def check_port_available(port):
+        """Check if a port is available for binding."""
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(('0.0.0.0', port))
+                return True
+        except OSError:
+            return False
+    
     try:
         print("Starting OmniTool Gradio App...")
         print(f"Arguments: {args}")
         print(f"Run folder: {RUN_FOLDER}")
-        print("App should be available at: http://0.0.0.0:7888")
-        demo.launch(server_name="0.0.0.0", server_port=7888)
+        
+        # Check if port is available
+        port = 7888
+        if not check_port_available(port):
+            print(f"⚠️ Port {port} is already in use. Trying alternative ports...")
+            for alt_port in range(7889, 7899):
+                if check_port_available(alt_port):
+                    port = alt_port
+                    print(f"✅ Using alternative port: {port}")
+                    break
+            else:
+                raise Exception(f"No available ports found in range 7888-7898")
+        
+        print(f"App will be available at: http://0.0.0.0:{port}")
+        print("📋 Pre-launch checklist:")
+        print("  • Ensure OmniParser server is running (if using AI features)")
+        print("  • Ensure Windows Host server is running (if using GUI automation)")
+        print("  • Set your API keys in environment variables or UI settings")
+        print()
+        
+        # Launch with production-ready settings
+        demo.launch(
+            server_name="0.0.0.0", 
+            server_port=port,
+            share=False,  # Security: don't auto-share publicly
+            show_error=True,  # Show errors for debugging
+            quiet=False,  # Show startup logs
+            favicon_path=None,
+            ssl_verify=False  # For development; should be True in production
+        )
+        
     except Exception as e:
-        print(f"Failed to launch app: {str(e)}")
-        print("Please check that:")
-        print("1. Port 7888 is not already in use")
-        print("2. All required dependencies are installed")
-        print("3. The OmniParser server is running if you plan to use it")
+        print(f"❌ Failed to launch app: {str(e)}")
+        print("\n🔧 Troubleshooting:")
+        print("1. Check if port is available: netstat -tulpn | grep :7888")
+        print("2. Verify all dependencies are installed: pip check")
+        print("3. Test basic Python imports:")
+        print("   python -c 'import gradio, requests, anthropic, openai'")
+        print("4. Check if OmniParser server is running (optional):")
+        print("   curl http://localhost:8000/probe")
+        print("5. Check if Windows Host server is running (optional):")
+        print("   curl http://localhost:5000/probe")
+        print()
+        print("For more help, see TROUBLESHOOTING.md")
         raise
