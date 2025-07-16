@@ -79,7 +79,7 @@ def sanitize_input(text):
     
     # Remove potentially dangerous characters and limit length
     text = text.strip()
-    text = re.sub(r'[<>\"\'&]', '', text)  # Remove HTML/JS injection chars
+    text = re.sub(r'[<>"\'&]', '', text)  # Remove HTML/JS injection chars
     
     # Limit input length
     MAX_INPUT_LENGTH = 2000
