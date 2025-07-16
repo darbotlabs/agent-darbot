@@ -28,10 +28,16 @@ def check_dependencies():
         'numpy', 'opencv-python', 'torch'
     ]
     
+    # Map package names to their corresponding module names
+    package_to_module = {
+        'opencv-python': 'cv2'
+    }
+    
     missing = []
     for package in required_packages:
+        module_name = package_to_module.get(package, package.replace('-', '_'))
         try:
-            importlib.import_module(package.replace('-', '_'))
+            importlib.import_module(module_name)
             print(f"✅ {package}")
         except ImportError:
             print(f"❌ {package} (missing)")
