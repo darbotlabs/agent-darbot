@@ -207,7 +207,6 @@ def save_to_storage(filename: str, data: str) -> None:
         file_path = CONFIG_DIR / filename
         
         # Write to temporary file first, then move to final location (atomic operation)
-        import tempfile
         temp_path = file_path.with_suffix('.tmp')
         temp_path.write_text(data)
         temp_path.chmod(0o600)  # Secure permissions before moving
