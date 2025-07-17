@@ -216,7 +216,7 @@ def save_to_storage(filename: str, data: str) -> None:
     except Exception as e:
         print(f"Debug: Error saving {filename}: {e}")
         # Clean up temp file if it exists
-        temp_path = CONFIG_DIR / f"{filename}.tmp"
+        temp_path = (CONFIG_DIR / filename).with_suffix('.tmp')
         if temp_path.exists():
             temp_path.unlink()
 
