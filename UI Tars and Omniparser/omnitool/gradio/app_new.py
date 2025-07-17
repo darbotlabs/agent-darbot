@@ -1100,7 +1100,7 @@ if __name__ == "__main__":
             show_error=True,  # Show errors for debugging
             quiet=False,  # Show startup logs
             favicon_path=None,
-            ssl_verify=False  # For development; should be True in production
+            ssl_verify=os.getenv("SSL_VERIFY", "true").lower() == "true"  # Configurable via environment variable
         )
         
     except Exception as e:
