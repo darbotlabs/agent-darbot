@@ -1,6 +1,6 @@
 gradio==3.50.2
 gradio_client==0.6.1
-torch==2.7.1
+torch==2.4.1
 easyocr==1.7.2
 torchvision==0.22.1
 supervision==0.18.0
