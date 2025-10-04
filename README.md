@@ -7,6 +7,9 @@
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-20-green.svg)](https://nodejs.org/)
+[![Status](https://img.shields.io/badge/Status-Production_Ready-success.svg)](./ONBOARDING_SUMMARY.md)
+
+> **🎉 Repository Onboarded!** Python components are production-ready. See [ONBOARDING_SUMMARY.md](./ONBOARDING_SUMMARY.md) for details.
 
 A comprehensive GUI automation and screen parsing system combining **OmniParser**, **UI-TARS**, and **OmniTool** for intelligent computer control using vision-language models.
 
@@ -20,11 +23,13 @@ A comprehensive GUI automation and screen parsing system combining **OmniParser*
 
 ## 📚 Quick Links
 
-- 📖 **Documentation**: See [`UI Tars and Omniparser/`](./UI%20Tars%20and%20Omniparser/) directory
-- 🚀 **Quick Start**: [`SETUP_GUIDE.md`](./UI%20Tars%20and%20Omniparser/SETUP_GUIDE.md)
+- ⚡ **New Here?**: [`QUICKSTART.md`](./QUICKSTART.md) - Get started in 5 minutes!
+- 📋 **Onboarding Summary**: [`ONBOARDING_SUMMARY.md`](./ONBOARDING_SUMMARY.md) - Repository status and recommendations
 - 🔧 **Troubleshooting**: [`TROUBLESHOOTING.md`](./UI%20Tars%20and%20Omniparser/TROUBLESHOOTING.md)
+- ⚠️ **Known Issues**: [`KNOWN_ISSUES.md`](./UI%20Tars%20and%20Omniparser/KNOWN_ISSUES.md)
 - 📝 **OmniParser Details**: [`README.md`](./UI%20Tars%20and%20Omniparser/README.md)
 - 💻 **UI-TARS Details**: [`README (2).md`](./UI%20Tars%20and%20Omniparser/README%20(2).md)
+- 📖 **Full Documentation**: See [`UI Tars and Omniparser/`](./UI%20Tars%20and%20Omniparser/) directory
 
 ## 🚀 Quick Start
 
